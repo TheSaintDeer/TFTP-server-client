@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <unistd.h>
 
-
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -12,123 +11,13 @@
 #include "packet.hpp"
 
 using namespace std;
-struct sockaddr_in server;
-
-void send_RRQ(int sock, char* filepath) {
-    int opcode = htons(READ);
-    char buffer[BUFFER_SIZE];
-    int buffer_len = 0;
-
-    memcpy(buffer, &opcode, 2);
-    buffer_len += 2;
-
-    strcpy(buffer+buffer_len, filepath);
-    buffer_len += strlen(filepath);
-
-    memcpy(buffer+buffer_len, 0, 1);
-    buffer_len++;
-
-    strcpy(buffer+buffer_len, MODE);
-    buffer_len += strlen(MODE);
-
-    memcpy(buffer+buffer_len, 0, 1);
-    buffer_len++;
-
-    if (sendto(sock, buffer, buffer_len, MSG_CONFIRM, (const struct sockaddr *)&server, sizeof(server)) < 0) {
-        exit(2);
-    }
-}
-
-void send_WRQ(int sock, char* filepath) {
-    int opcode = htons(WRITE);
-    char buffer[BUFFER_SIZE];
-    int buffer_len = 0;
-
-    memcpy(buffer, &opcode, 2);
-    buffer_len += 2;
-
-    strcpy(buffer+buffer_len, filepath);
-    buffer_len += strlen(filepath);
-
-    memcpy(buffer+buffer_len, 0, 1);
-    buffer_len++;
-
-    strcpy(buffer+buffer_len, MODE);
-    buffer_len += strlen(MODE);
-
-    memcpy(buffer+buffer_len, 0, 1);
-    buffer_len++;
-
-    if (sendto(sock, buffer, buffer_len, MSG_CONFIRM, (const struct sockaddr *)&server, sizeof(server)) < 0) {
-        exit(2);
-    }
-
-}
-
-void send_DATA(int sock, uint16_t packet_number, char* data) {
-    int opcode = htons(WRITE);
-    char buffer[BUFFER_SIZE];
-    int buffer_len = 0;
-
-    memcpy(buffer, &opcode, 2);
-    buffer_len += 2;
-
-    packet_number = htons(packet_number);
-    memcpy(buffer+buffer_len, &packet_number, 2);
-    buffer_len += 2;
-
-    strcpy(buffer+buffer_len, data);
-
-    if (sendto(sock, buffer, buffer_len, MSG_CONFIRM, (const struct sockaddr *)&server, sizeof(server)) < 0) {
-        exit(2);
-    }
-}
-
-void send_ACK(int sock, uint16_t packet_number) {
-    int opcode = htons(ACK);
-    char buffer[BUFFER_SIZE];
-    int buffer_len = 0;
-
-    memcpy(buffer, &opcode, 2);
-    buffer_len += 2;
-
-    packet_number = htons(packet_number);
-    memcpy(buffer+buffer_len, &packet_number, 2);
-    buffer_len += 2;
-
-    if (sendto(sock, buffer, buffer_len, MSG_CONFIRM, (const struct sockaddr *)&server, sizeof(server)) < 0) {
-        exit(2);
-    }
-}
-
-void send_ERR(int sock, uint16_t error_code, char* error_msg) {
-    int opcode = htons(ERROR);
-    char buffer[BUFFER_SIZE];
-    int buffer_len = 0;
-	error_code = htons(error_code);
-
-    memcpy(buffer, &opcode, 2);
-    buffer_len += 2;
-
-    memcpy(buffer+buffer_len, &error_code, 2);
-    buffer_len += 2;
-
-    strcpy(buffer+buffer_len, error_msg);
-    buffer_len += strlen(error_msg);
-
-    memcpy(buffer+buffer_len, 0, 1);
-
-    if (sendto(sock, buffer, buffer_len, MSG_CONFIRM, (const struct sockaddr *)&server, sizeof(server)) < 0) {
-        exit(2);
-    }
-}
 
 int main(int argc, char **argv) {
 
-    char* hostname = "";
+    char* hostname;
     int port = STANDART_PORT;
-    char* filepath = "";
-    char* dest_filepath = "";
+    char* filepath;
+    char* dest_filepath;
     int operation = WRITE;
     int c;
 
@@ -158,6 +47,7 @@ int main(int argc, char **argv) {
     }
 
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in server;
 
     server.sin_family = AF_INET;
     inet_pton(AF_INET, hostname, &server.sin_addr);
@@ -166,23 +56,24 @@ int main(int argc, char **argv) {
     // RRQ/WRQ
     if (operation == WRITE) {
         scanf("%s", filepath);
-        send_WRQ(sock, filepath);
+        send_WRQ(sock, filepath, server);
     } else if (operation == READ) {
-        send_RRQ(sock, filepath);
+        send_RRQ(sock, filepath, server);
     }
 
     // responsible
     if (operation == READ) {
             int opcode;
-            char buffer[BUFFER_SIZE];
+            char buffer[PACKET_SIZE];
             int addr_len = sizeof(server);
-            int recv_len = recvfrom(sock, (char *)buffer, BUFFER_SIZE, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) & addr_len);
+            int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) & addr_len);
 
             memcpy(&opcode, (uint16_t *) & buffer, 2);
             opcode = ntohs(opcode);
 
             if (opcode == ERROR) {
                 fprintf(stderr, "OPCODE ERROR");
+                exit(10);
             } else if (opcode == DATA) {
                 uint16_t packet_number;
                 memcpy(&packet_number, (uint16_t *) & buffer[2], 2);
@@ -194,21 +85,21 @@ int main(int argc, char **argv) {
                     exit(-1);
                 }
 
-                for (int i = 0; i < recv_len - 4; i++)
-                    fputc(buffer[i + 4], dest_file);
+                for (int i = 4; i < recv_len; i++)
+                    fputc(buffer[i], dest_file);
 
-                send_ACK(sock, packet_number);
+                send_ACK(sock, packet_number, server);
 
                 while (recv_len == 516) {
-                    int recv_len = recvfrom(sock, (char *)buffer, BUFFER_SIZE, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) & addr_len);
+                    int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) & addr_len);
                     
                     memcpy(&packet_number, (uint16_t *) & buffer[2], 2);
                     packet_number = ntohs(packet_number);
 
-                    for (int i = 0; i < recv_len - 4; i++)
-                        fputc(buffer[i + 4], dest_file);
+                    for (int i = 4; i < recv_len; i++)
+                        fputc(buffer[i], dest_file);
 
-                    send_ACK(sock, packet_number);
+                    send_ACK(sock, packet_number, server);
                 }
 
                 shutdown(sock, SHUT_RDWR);
@@ -216,37 +107,77 @@ int main(int argc, char **argv) {
                 fclose(dest_file);            
             }
 
-    } else if (operation == WRITE) {
-        int opcode;
-        char buffer[BUFFER_SIZE];
-        memset(buffer, 0, BUFFER_SIZE);
+    } else if (operation == WRITE) {    
+
+        char buffer[PACKET_SIZE];
+        memset(buffer, 0, PACKET_SIZE);
+        char data[DATA_SIZE];
+        memset(data, 0, DATA_SIZE);
+        uint16_t opcode;
         int addr_len = sizeof(server);
-        recvfrom(sock, (char *)buffer, BUFFER_SIZE, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) & addr_len);
+        char c;
+        int i = 0;
+        int packet_number = 0;
+        int recv_packet_number;
+
+        FILE *dest_file = fopen(dest_filepath, "r");
+
+        if (dest_file == NULL) {
+            exit(-1);
+        }
+
+        int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) & addr_len);
 
         memcpy(&opcode, (uint16_t *) & buffer, 2);
         opcode = ntohs(opcode);
 
         if (opcode == ERROR) {
             fprintf(stderr, "OPCODE ERROR");
+            exit(10);
         } else if (opcode == ACK) {
-            uint16_t packet_number = 1;
-            packet_number = ntohs(packet_number);
-
-            FILE *dest_file = fopen(dest_filepath, "r");
-
-            if (dest_file == NULL) {
-                exit(-1);
-            }
+        
+            memcpy(&recv_packet_number, (uint16_t *) & buffer[2], 2);
+            if (packet_number != ntohs(recv_packet_number))
+                exit(11);
 
             do {
 
-            } while ()
+                c = fgetc(dest_file);
+
+                if (c != EOF) {
+                    data[i] = c;
+                    i++;
+                } 
+                
+                if (c == EOF || i == DATA_SIZE) {
+                    packet_number++;
+                    send_DATA(sock, packet_number, data, server);
+
+                    recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) & addr_len);
+
+                    memcpy(&opcode, (uint16_t *) & buffer, 2);
+                    opcode = ntohs(opcode);
+                    if (opcode == ERROR) {
+                        fprintf(stderr, "OPCODE ERROR");
+                        exit(10);
+                    } else if (opcode == ACK) {
+                        memcpy(&recv_packet_number, (uint16_t *) & buffer[2], 2);
+                        if (packet_number != ntohs(recv_packet_number))
+                            exit(11);
+                    }
+
+                    i = 0;
+                    memset(data, 0, DATA_SIZE);
+
+                }
+
+            } while (c != EOF);
 
             shutdown(sock, SHUT_RDWR);
             close(sock);
-            fclose(dest_file);  
-                
-        }            
+            fclose(dest_file); 
+        }
+
     }
 
     return 0; 
