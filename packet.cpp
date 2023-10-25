@@ -1,10 +1,10 @@
 #include "packet.hpp"
 
 void send_RRQ(int sock, char* filepath, struct sockaddr_in server) {
-    int opcode = htons(READ);
-    char buffer[PACKET_SIZE];
+    char buffer[1024];
     int buffer_len = 0;
-    int end_string = 0;
+    uint16_t opcode = htons(READ);
+    uint8_t end_string = 0;
 
     memcpy(buffer, &opcode, 2);
     buffer_len += 2;
@@ -54,7 +54,7 @@ void send_WRQ(int sock, char* filepath, struct sockaddr_in server) {
 }
 
 void send_DATA(int sock, uint16_t packet_number, char* data, struct sockaddr_in server) {
-    int opcode = htons(WRITE);
+    int opcode = htons(DATA);
     char buffer[PACKET_SIZE];
     int buffer_len = 0;
 
@@ -65,7 +65,9 @@ void send_DATA(int sock, uint16_t packet_number, char* data, struct sockaddr_in 
     memcpy(buffer+buffer_len, &packet_number, 2);
     buffer_len += 2;
 
+    fprintf(stdout, "Data: %s\n", data);
     strcpy(buffer+buffer_len, data);
+    buffer_len += strlen(data);
 
     if (sendto(sock, buffer, buffer_len, MSG_CONFIRM, (const struct sockaddr *)&server, sizeof(server)) < 0) {
         exit(2);
@@ -106,6 +108,7 @@ void send_ERR(int sock, uint16_t error_code, char* error_msg, struct sockaddr_in
     buffer_len += strlen(error_msg);
 
     memcpy(buffer+buffer_len, &end_string, 1);
+    buffer_len++;
 
     if (sendto(sock, buffer, buffer_len, MSG_CONFIRM, (const struct sockaddr *)&server, sizeof(server)) < 0) {
         exit(2);
