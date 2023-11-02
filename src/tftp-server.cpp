@@ -68,7 +68,7 @@ void main_loop(struct parametrs p) {
         if (opcode == RRQ) {
             proccessing_RRQ(sock, client, filename, mode, client_size);
         } else if (opcode == WRQ) {
-            proccessing_WRQ(sock, client, filename, mode, client_size);
+            proccessing_WRQ(sock, client, filename, mode, client_size, p);
         }
 
     }
@@ -208,7 +208,7 @@ void RRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_si
     } while (c != EOF);
 }
 
-void proccessing_WRQ(int sock, sockaddr_in client, char* filename, char* mode, size_t client_size) {
+void proccessing_WRQ(int sock, sockaddr_in client, char* filename, char* mode, size_t client_size, struct parametrs p) {
 
     pid_t fork_id = fork();
 
@@ -219,9 +219,12 @@ void proccessing_WRQ(int sock, sockaddr_in client, char* filename, char* mode, s
         int child_sock = socket(AF_INET, SOCK_DGRAM, 0);
 
         if (strncmp(mode, "octet", 5) == 0) {
-            WRQ_octet(child_sock, filename, client, client_size);
+            fprintf(stdout, "mode octet\n");
+            send_ACK(child_sock, 0, client);
+            fprintf(stdout, "sended ACK\n");
+            WRQ_octet(child_sock, filename, client, client_size, p);
         } else if (strncmp(mode, "netascii", 8) == 0) {
-            WRQ_netascii(child_sock, filename, client, client_size);
+            WRQ_netascii(child_sock, filename, client, client_size, p);
         } else {
             exit(2);
         }
@@ -232,7 +235,8 @@ void proccessing_WRQ(int sock, sockaddr_in client, char* filename, char* mode, s
     }   
 }
 
-void WRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size) {
+void WRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size, struct parametrs p) {
+    fprintf(stdout, "WRQ_octet\n");
     int opcode;
     char buffer[PACKET_SIZE];
     int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&client, (socklen_t *) &client_size);
@@ -252,8 +256,11 @@ void WRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size)
         packet_number = ntohs(packet_number);
 
         FILE *dest_file;
+        char* path = p.root_dirpath;
+        strcat(path, "/");
+        strcat(path, filename);
 
-        if ((dest_file = fopen(filename, "w+b")) == NULL) {
+        if ((dest_file = fopen(path, "w+b")) == NULL) {
             fprintf(stdout, "log: could not open file.\n");
             exit(-1);
         }
@@ -301,7 +308,7 @@ void WRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size)
     }
 }
 
-void WRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_size) {
+void WRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_size, struct parametrs p) {
     int opcode;
     char buffer[PACKET_SIZE];
     int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&client, (socklen_t *) &client_size);

@@ -30,14 +30,14 @@ void main_loop(struct parametrs p);
 
 void proccessing_RRQ(int sock, sockaddr_in client, char* filename, char* mode, size_t client_size);
 
-void proccessing_WRQ(int sock, sockaddr_in client, char* filename, char* mode, size_t client_size);
+void proccessing_WRQ(int sock, sockaddr_in client, char* filename, char* mode, size_t client_size, struct parametrs p);
 
 void RRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size);
 
 void RRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_size);
 
-void WRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size);
+void WRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size, struct parametrs p);
 
-void WRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_size);
+void WRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_size, struct parametrs p);
 
 #endif
