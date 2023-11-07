@@ -43,7 +43,6 @@ void get_parametrs(struct parametrs* p, int* oper, int argc, char **argv) {
 int check_OACK(struct opts o, char* buffer, int buffer_len) {
     char *option;
     char* value;
-    char* result;
     while (buffer_len < (strlen(buffer) - 1)) {
         strcpy(option, buffer+buffer_len);
         buffer_len += strlen(option) + 2;
@@ -52,7 +51,7 @@ int check_OACK(struct opts o, char* buffer, int buffer_len) {
             strcpy(value, buffer+buffer_len);
             char number[2];
             for (int i = 0; i < strlen(value) - 1; i += 2){
-                strcpy(number, value+i);
+                strncpy(number, value+i, 2);
                 if (o.blksize[i/2] != convert_from_ASCII(number)) {
                     return 1;
                 }
@@ -61,7 +60,7 @@ int check_OACK(struct opts o, char* buffer, int buffer_len) {
             strcpy(value, buffer+buffer_len);
             char number[2];
             for (int i = 0; i < strlen(value) - 1; i += 2){
-                strcpy(number, value+i);
+                strncpy(number, value+i, 2);
                 if (o.timeout[i/2] != convert_from_ASCII(number)) {
                     return 1;
                 }
@@ -70,7 +69,7 @@ int check_OACK(struct opts o, char* buffer, int buffer_len) {
             strcpy(value, buffer+buffer_len);
             char number[2];
             for (int i = 0; i < strlen(value) - 1; i += 2){
-                strcpy(number, value+i);
+                strncpy(number, value+i, 2);
                 if (o.tsize[i/2] != convert_from_ASCII(number)) {
                     return 1;
                 }
@@ -87,17 +86,19 @@ void RRQ_request(int sock, sockaddr_in server, struct parametrs p) {
 
     if (dest_file == NULL) {
         fprintf(stdout, "log: could not open file.\n");
-        exit(-1);
+        exit(1);
     }
 
-    struct opts o = {"1024", "1", "0"};
+    struct opts o = {(char*) "1024", (char*) "1", (char*) "0"};
+    fprintf(stdout, "blksize: %s timeout: %s tsize: %s\n", o.blksize, o.timeout, o.tsize);
     send_first_request(sock, p.filepath, server, o, RRQ);
 
     int opcode;
-    char buffer[PACKET_SIZE];
+    int blksize = stoi(o.blksize);
+    char buffer[blksize+4];
     int buffer_len = 0;
     int addr_len = sizeof(server);
-    int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) & addr_len);
+    int recv_len = recvfrom(sock, (char *)buffer, blksize+4, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) & addr_len);
 
     memcpy(&opcode, (uint16_t *) &buffer, 2);
     buffer_len += 2;
@@ -107,24 +108,30 @@ void RRQ_request(int sock, sockaddr_in server, struct parametrs p) {
     if (opcode == OACK) {
     
     } else if (opcode == ERROR) {
-        // TODO 
-        exit(-1);
+        exit(1);
     } else {
         fprintf(stderr, "Received not OACK packet.\n");
-        exit(-1);
+        exit(1);
     }
 
-    if (check_OACK(o, buffer, buffer_len))
+    // checking computer's memory
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long page_size = sysconf(_SC_PAGE_SIZE);
+    if (pages*page_size < stoi(o.tsize)) {
+        send_ERR(sock, 3, server);
+        exit(1);
+    }
+
+    if (check_OACK(o, buffer, buffer_len)) {
         send_ERR(sock, 8, server);
-    else
+        exit(1);
+    } else
         send_ACK(sock, 0, server);
 
+    memset(buffer, 0, blksize+4);
     uint16_t packet_number;
-
-    int blksize = stoi(o.blksize);
-    // sscanf(o.blksize, "%d", &blksize);
     while (recv_len == blksize+4) {
-        int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) &addr_len);
+        int recv_len = recvfrom(sock, (char *)buffer, blksize+4, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) &addr_len);
         
         memcpy(&opcode, (uint16_t *) &buffer, 2);
         opcode = ntohs(opcode);
@@ -139,15 +146,14 @@ void RRQ_request(int sock, sockaddr_in server, struct parametrs p) {
 
             send_ACK(sock, packet_number, server);
             fprintf(stdout, "log: sended ACK packet.\n");
+            memset(buffer, 0, blksize+4);
         } else if (opcode == ERROR) {
-            // TODO
             exit(1);
         }
-
-        shutdown(sock, SHUT_RDWR);
-        close(sock);
-        fclose(dest_file);   
     }
+    shutdown(sock, SHUT_RDWR);
+    close(sock);
+    fclose(dest_file);   
 }
 
 void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
@@ -155,7 +161,7 @@ void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
 
     if (dest_file == NULL) {
         fprintf(stdout, "log: could not open file.\n");
-        exit(-1);
+        exit(1);
     }
 
     fseek(dest_file, 0, SEEK_END);
@@ -165,14 +171,15 @@ void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
     char* chars_filesize;
     sprintf(chars_filesize, "%d", file_size);
 
-    struct opts o = {"1024", "1", chars_filesize};
+    struct opts o = {(char*) "1024", (char*) "1", chars_filesize};
     send_first_request(sock, p.filepath, server, o, WRQ);
 
     int opcode;
-    char buffer[PACKET_SIZE];
+    int blksize = stoi(o.blksize);
+    char buffer[blksize+4];
     int buffer_len = 0;
     int addr_len = sizeof(server);
-    int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) & addr_len);
+    int recv_len = recvfrom(sock, (char *)buffer, blksize+4, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) & addr_len);
 
     memcpy(&opcode, (uint16_t *) &buffer, 2);
     buffer_len += 2;
@@ -182,11 +189,10 @@ void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
     if (opcode == OACK) {
     
     } else if (opcode == ERROR) {
-        // TODO 
-        exit(-1);
+        exit(1);
     } else {
         fprintf(stderr, "Received not OACK packet.\n");
-        exit(-1);
+        exit(1);
     }
 
     if (check_OACK(o, buffer, buffer_len))
@@ -195,7 +201,6 @@ void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
     uint16_t packet_number = 1;
     uint16_t recv_packet_number;
 
-    int blksize = stoi(o.blksize);
     char data[blksize];
     size_t dim = 0;
     int i = 0;
@@ -206,9 +211,9 @@ void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
         if (i == blksize || dim == 0) {
             send_DATA(sock, packet_number, data, server);
             fprintf(stdout, "log: DATA was sended\n");
-            memset(data, 0, PACKET_SIZE-4);
-            memset(buffer, 0, PACKET_SIZE);
-            recv_len = recvfrom(sock, (char*) buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr*) &server, (socklen_t*) &addr_len);
+            memset(data, 0, blksize);
+            memset(buffer, 0, blksize+4);
+            recv_len = recvfrom(sock, (char*) buffer, blksize+4, MSG_WAITALL, (struct sockaddr*) &server, (socklen_t*) &addr_len);
 
             memcpy(&opcode, (uint16_t*) &buffer, 2);
             opcode = ntohs(opcode);
@@ -250,12 +255,10 @@ int main(int argc, char **argv) {
 
     int sock;
     if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) { 
-        fprintf(stderr, "log: socket creation failed.\n");
-        exit(EXIT_FAILURE); 
+        exit(1); 
     } 
-    fprintf(stderr, "log: socket created.\n");
-    struct sockaddr_in server;
 
+    struct sockaddr_in server;
     server.sin_family = AF_INET;
     inet_pton(AF_INET, p.hostname, &server.sin_addr);
     server.sin_port = htons(p.port);

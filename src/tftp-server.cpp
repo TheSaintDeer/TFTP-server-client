@@ -17,12 +17,58 @@ void get_parametrs(struct parametrs* p, int argc, char **argv) {
     p->root_dirpath = argv[argc-1];
 }
 
+int control_OACK(struct opts* o, char* buffer, int buffer_len) {
+    char *option;
+    char* value;
+    char result[PACKET_SIZE];
+
+    if (buffer_len >= (strlen(buffer) - 1)) {
+        o->blksize = (char*) "512";
+        return 2;
+    }
+    
+    while (buffer_len < (strlen(buffer) - 1)) {
+        strcpy(option, buffer+buffer_len);
+        fprintf(stdout, "OPTS: %s\n", option);
+        buffer_len += strlen(option) + 2;
+        
+        if (strcmp(option, "blksize") == 0) {
+            strcpy(value, buffer+buffer_len);
+            char number[2];
+            for (int i = 0; i < strlen(value) - 1; i += 2){
+                strncpy(number, value+i, 2);
+                result[i/2] = convert_from_ASCII(number);
+            }
+            o->blksize = result;
+        } else if (strcmp(option, "timeout") == 0) {
+            strcpy(value, buffer+buffer_len);
+            char number[2];
+            for (int i = 0; i < strlen(value) - 1; i += 2){
+                strncpy(number, value+i, 2);
+                result[i/2] = convert_from_ASCII(number);
+            }
+            o->timeout = result;
+        } else if (strcmp(option, "tsize") == 0) {
+            strcpy(value, buffer+buffer_len);
+            char number[2];
+            for (int i = 0; i < strlen(value) - 1; i += 2){
+                strncpy(number, value+i, 2);
+                result[i/2] = convert_from_ASCII(number);
+            }
+            o->tsize = result;
+        } else {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 void main_loop(struct parametrs p) {
 
     // creating socket
     int sock;
     struct sockaddr_in server, client;
-    size_t client_size = sizeof(client);
+    size_t addr_len = sizeof(client);
 
     if ( (sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
         fprintf(stderr, "log: socket creation failed.\n"); 
@@ -47,84 +93,156 @@ void main_loop(struct parametrs p) {
     inet_ntop(server.sin_family, (void*) &server.sin_addr, addr, sizeof(addr));
 
     // listing for packets
-
     int recv_len;
     char buffer[PACKET_SIZE];
     uint16_t opcode;
-    char filename[512];
-    char mode[10];
 
     while(1) {
-        recv_len = recvfrom(sock, (char*) buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &client_size);
+        recv_len = recvfrom(sock, (char*) buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &addr_len);
 
         memcpy(&opcode, (uint16_t*) &buffer, 2);
         opcode = ntohs(opcode);
-
-        strcpy(filename, buffer+2);
-        strcpy(mode, buffer+3+strlen(filename));
-        fprintf(stdout, "log: received packet with opcode: %d filename: %s mode: %s\n", opcode, filename, mode);
-        memset(buffer, 0, PACKET_SIZE);
-
+         
         if (opcode == RRQ) {
-            proccessing_RRQ(sock, client, filename, mode, client_size);
+            proccessing_RRQ(sock, client, addr_len, buffer);
         } else if (opcode == WRQ) {
-            proccessing_WRQ(sock, client, filename, mode, client_size, p);
+            proccessing_WRQ(sock, client, addr_len, buffer);
         }
-
     }
 }
 
-void proccessing_RRQ(int sock, sockaddr_in client, char* filename, char* mode, size_t client_size) {
+void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer) {
+    struct opts o;
+    char filename[512];
+    int buffer_len = 2;
+    char mode[10];
 
-    if (access(filename, F_OK) == -1)
-        send_ERR(sock, FILE_NOT_FOUND, client);
+    strcpy(filename, buffer+buffer_len);
+    buffer_len += strlen(filename) + 1;
+
+    strcpy(mode, buffer+buffer_len);
+    buffer_len += strlen(mode) + 1;
+    fprintf(stdout, "log: received packet with filename: %s mode: %s\n",filename, mode);
 
     pid_t fork_id = fork();
 
     if (fork_id > 0) { //parent
-        
+        return;
     } else if (fork_id == 0) { //children
+        fprintf(stdout, "Child started\n");
+        FILE *src_file;
+        if (strncmp(mode, "octet", 5) == 0) {
+            fprintf(stdout, "Mode octet\n");
+            src_file = fopen(filename, "rb");
+        } else if (strncmp(mode, "netascii", 8) == 0) {
+            src_file = fopen(filename, "r");
+        }
+
+        if (src_file == NULL) {
+            send_ERR(sock, 1, client);
+            return;
+        }
 
         int child_sock = socket(AF_INET, SOCK_DGRAM, 0);
 
+        fprintf(stdout, "Checking OACK len: %d\n", buffer_len);
+        int res = control_OACK(&o, buffer, buffer_len);
+        fprintf(stdout, "Result check OACK %d\n", res);
+        if (res == 2) {
+
+        } else if (res == 1)
+            send_ERR(sock, 8, client);
+        else if (res == 0) {
+            if (strcmp(o.timeout, "-1") != 0) {
+                struct timeval timeout;
+                timeout.tv_sec = stoi(o.timeout);
+                timeout.tv_usec = 0;
+
+                if (setsockopt(child_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+                    send_ERR(sock, 0, client);
+                    return;
+                }
+            }
+
+            if (strcmp(o.tsize, "0") == 0) { 
+                fseek(src_file, 0, SEEK_END);
+                int file_size = ftell(src_file);
+                fseek(src_file, 0, SEEK_SET);
+
+                char* chars_filesize;
+                sprintf(chars_filesize, "%d", file_size); 
+                o.tsize = chars_filesize;  
+            }
+
+            send_OACK(sock, o, client);
+        }
+
         if (strncmp(mode, "octet", 5) == 0) {
-            RRQ_octet(child_sock, filename, client, client_size);
+            RRQ_octet(child_sock, client, addr_len, o, src_file, res);
         } else if (strncmp(mode, "netascii", 8) == 0) {
-            RRQ_netascii(child_sock, filename, client, client_size);
+            RRQ_netascii(child_sock, client, addr_len, o, src_file, res);
         } else {
-            exit(2);
+            return;
         }
 
     } else if (fork_id < 0) {
+        send_ERR(sock, 0, client);
         fprintf(stderr, "log: error while creating child process for client.\n");
-        exit(1);
+        return;
     }   
 }
 
-void RRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size) {
-    FILE *src_file = fopen(filename, "rb");
-    char buffer[PACKET_SIZE];
-    char data[DATA_SIZE];
+void RRQ_octet(int sock, sockaddr_in client, size_t client_size, struct opts o, FILE* src_file, bool with_opts) {
+
+    int blksize = PACKET_SIZE-4;
+    if (strcmp(o.blksize, "-1") != 0) {
+        blksize = stoi(o.blksize);
+    }
+
+    char buffer[blksize+4];
+    memset(buffer, 0, blksize+4);
     int recv_len;
     int opcode;
+    
     uint16_t packet_number = 1;
     uint16_t recv_packet_number;
-    int i = 0;
+
+    if (!with_opts) {
+        recv_len = recvfrom(sock, (char*) buffer, blksize+4, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &client_size);
+        memcpy(&opcode, (uint16_t*) &buffer, 2);
+        opcode = ntohs(opcode);
+
+        if (opcode != ACK) {
+            fclose(src_file);
+            shutdown(sock, SHUT_RDWR);
+            close(sock);
+            exit(1);
+        }
+
+        memcpy(&recv_packet_number, (uint16_t*) &buffer[2], 2);
+        recv_packet_number = ntohs(recv_packet_number);
+        
+        if (0 != recv_packet_number) {
+            fclose(src_file);
+            shutdown(sock, SHUT_RDWR);
+            close(sock);
+            exit(1);
+        }
+    }
+
+    char data[blksize];
     size_t dim = 0;
-
-    memset(buffer, 0, PACKET_SIZE);
-    memset(data, 0, DATA_SIZE);
-
+    int i = 0;
     do {
         dim = fread(&data[i], 1, 1, src_file);
         i += dim;
 
-        if (i == DATA_SIZE || dim == 0) {
+        if (i == blksize || dim == 0) {
             send_DATA(sock, packet_number, data, client);
             fprintf(stdout, "log: DATA was sended\n");
-            memset(data, 0, DATA_SIZE);
-            memset(buffer, 0, PACKET_SIZE);
-            recv_len = recvfrom(sock, (char*) buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &client_size);
+            memset(data, 0, blksize);
+            memset(buffer, 0, blksize+4);
+            recv_len = recvfrom(sock, (char*) buffer, blksize+4, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &client_size);
 
             memcpy(&opcode, (uint16_t*) &buffer, 2);
             opcode = ntohs(opcode);
@@ -152,22 +270,54 @@ void RRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size)
     } while (dim == 1);
 }
 
-void RRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_size) {
-    FILE *src_file = fopen(filename, "r");
-    char buffer[PACKET_SIZE];
-    char data[DATA_SIZE];
+void RRQ_netascii(int sock, sockaddr_in client, size_t client_size, struct opts o, FILE* src_file, bool with_opts) {
+
+    int blksize = PACKET_SIZE-4;
+    if (strcmp(o.blksize, "-1") != 0) {
+        blksize = stoi(o.blksize);
+    }
+
+    char buffer[blksize+4];
     int recv_len;
     int opcode;
+
+    memset(buffer, 0, blksize+4);
+    
     uint16_t packet_number = 1;
     uint16_t recv_packet_number;
+
+    if (!with_opts) {
+        recv_len = recvfrom(sock, (char*) buffer, blksize+4, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &client_size);
+        memcpy(&opcode, (uint16_t*) &buffer, 2);
+        opcode = ntohs(opcode);
+
+        if (opcode != ACK) {
+            fclose(src_file);
+            shutdown(sock, SHUT_RDWR);
+            close(sock);
+            exit(1);
+        }
+
+        memcpy(&recv_packet_number, (uint16_t*) &buffer[2], 2);
+        recv_packet_number = ntohs(recv_packet_number);
+        
+        if (0 != recv_packet_number) {
+            fclose(src_file);
+            shutdown(sock, SHUT_RDWR);
+            close(sock);
+            exit(1);
+        }
+    }
+
+
+    char data[blksize];
     int i = 0;
     char c;
 
-    memset(buffer, 0, PACKET_SIZE);
-    memset(data, 0, DATA_SIZE);
+    memset(buffer, 0, blksize+4);
+    memset(data, 0, blksize);
 
     do {
-        
         c = fgetc(src_file);
 
         if(c != EOF) {
@@ -175,12 +325,12 @@ void RRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_si
             data[i] = c;
         }
 
-        if (i == DATA_SIZE || c == EOF) {
+        if (i == blksize || c == EOF) {
             send_DATA(sock, packet_number, data, client);
             fprintf(stdout, "log: DATA was sended\n");
-            memset(data, 0, DATA_SIZE);
-            memset(buffer, 0, PACKET_SIZE);
-            recv_len = recvfrom(sock, (char*) buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &client_size);
+            memset(data, 0, blksize);
+            memset(buffer, 0, blksize+4);
+            recv_len = recvfrom(sock, (char*) buffer, blksize+4, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &client_size);
 
             memcpy(&opcode, (uint16_t*) &buffer, 2);
             opcode = ntohs(opcode);
@@ -208,173 +358,111 @@ void RRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_si
     } while (c != EOF);
 }
 
-void proccessing_WRQ(int sock, sockaddr_in client, char* filename, char* mode, size_t client_size, struct parametrs p) {
+void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer) {
+    struct opts o;
+    char filename[512];
+    int buffer_len = 2;
+    char mode[10];
+
+    strcpy(filename, buffer+buffer_len);
+    buffer_len += strlen(filename) + 1;
+
+    strcpy(mode, buffer+buffer_len);
+    fprintf(stdout, "log: received packet with filename: %s mode: %s\n",filename, mode);
 
     pid_t fork_id = fork();
 
     if (fork_id > 0) { //parent
-        
+        return;
     } else if (fork_id == 0) { //children
+        FILE *src_file;
+        if (strncmp(mode, "octet", 5) == 0) {
+            src_file = fopen(filename, "wb");
+        } else if (strncmp(mode, "netascii", 8) == 0) {
+            src_file = fopen(filename, "w");
+        }
+
+        if (src_file == NULL) {
+            send_ERR(sock, 6, client);
+            return;
+        }
 
         int child_sock = socket(AF_INET, SOCK_DGRAM, 0);
 
-        if (strncmp(mode, "octet", 5) == 0) {
-            fprintf(stdout, "mode octet\n");
-            send_ACK(child_sock, 0, client);
-            fprintf(stdout, "sended ACK\n");
-            WRQ_octet(child_sock, filename, client, client_size, p);
-        } else if (strncmp(mode, "netascii", 8) == 0) {
-            WRQ_netascii(child_sock, filename, client, client_size, p);
-        } else {
-            exit(2);
+        int res = control_OACK(&o, buffer, buffer_len);
+        if (res == 2) {
+            send_ACK(sock, 0, client);
+        } else if (res == 1)
+            send_ERR(sock, 8, client);
+        else if (res == 0) {
+            if (strcmp(o.timeout, "-1") != 0) {
+                struct timeval timeout;
+                timeout.tv_sec = stoi(o.timeout);
+                timeout.tv_usec = 0;
+
+                if (setsockopt(child_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+                    send_ERR(sock, 0, client);
+                    return;
+                }
+            }
+
+            if (strcmp(o.tsize, "-1") != 0) { 
+                long pages = sysconf(_SC_PHYS_PAGES);
+                long page_size = sysconf(_SC_PAGE_SIZE);
+                if (pages*page_size < stoi(o.tsize)) {
+                    send_ERR(sock, 3, client);
+                    return;
+                }
+            }
+
+            send_OACK(sock, o, client);
         }
+
+        WRQ_communication(child_sock, client, addr_len, o, src_file, res);
 
     } else if (fork_id < 0) {
+        send_ERR(sock, 0, client);
         fprintf(stderr, "log: error while creating child process for client.\n");
-        exit(1);
-    }   
-}
-
-void WRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size, struct parametrs p) {
-    fprintf(stdout, "WRQ_octet\n");
-    int opcode;
-    char buffer[PACKET_SIZE];
-    int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&client, (socklen_t *) &client_size);
-
-    memcpy(&opcode, (uint16_t *) &buffer, 2);
-    opcode = ntohs(opcode);
-    fprintf(stdout, "log: received packet with opcode %d.\n", opcode);
-
-    if (opcode == ERROR) {
-        char msg[DATA_SIZE];
-        strcpy(msg, buffer+4);
-        fprintf(stderr, "log: error - %s.\n", msg);
-        exit(1);
-    } else if (opcode == DATA) { 
-        uint16_t packet_number;
-        memcpy(&packet_number, (uint16_t *) & buffer[2], 2);
-        packet_number = ntohs(packet_number);
-
-        FILE *dest_file;
-        char* path = p.root_dirpath;
-        strcat(path, "/");
-        strcat(path, filename);
-
-        if ((dest_file = fopen(path, "w+b")) == NULL) {
-            fprintf(stdout, "log: could not open file.\n");
-            exit(-1);
-        }
-
-        char data[DATA_SIZE];
-        strcpy(data, buffer+4);
-        fprintf(stdout, "log: received data: %s.\n", data);
-
-        for (int i = 4; i < recv_len; i++)
-            fputc(buffer[i], dest_file);
-
-        send_ACK(sock, packet_number, client);
-        fprintf(stdout, "log: sended ACK packet.\n");
-
-        while (recv_len == 516) {
-            int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&client, (socklen_t *) & client_size);
-            
-            memcpy(&opcode, (uint16_t *) & buffer, 2);
-            opcode = ntohs(opcode);
-            fprintf(stdout, "log: received packet with opcode %d.\n", opcode);
-
-            if (opcode == DATA) {
-                memcpy(&packet_number, (uint16_t *) & buffer[2], 2);
-                packet_number = ntohs(packet_number);
-
-                strcpy(data, buffer+4);
-                fprintf(stdout, "log: received data: %s.\n", data);
-
-                for (int i = 4; i < recv_len; i++)
-                    fputc(buffer[i], dest_file);
-
-                send_ACK(sock, packet_number, client);
-                fprintf(stdout, "log: sended ACK packet.\n");
-            } else if (opcode == ERROR) {
-                char msg[DATA_SIZE];
-                strcpy(msg, buffer+4);
-                fprintf(stderr, "log: error - %s.\n", msg);
-                exit(1);
-            }
-
-        }
-        shutdown(sock, SHUT_RDWR);
-        close(sock);
-        fclose(dest_file);      
+        return;
     }
 }
 
-void WRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_size, struct parametrs p) {
+void WRQ_communication(int sock, sockaddr_in client, size_t addr_len, struct opts o, FILE* src_file, bool with_opts) {
+    
+    int blksize = PACKET_SIZE-4;
+    if (strcmp(o.blksize, "-1") != 0) {
+        blksize = stoi(o.blksize);
+    }
+
     int opcode;
     char buffer[PACKET_SIZE];
-    int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&client, (socklen_t *) &client_size);
+    int recv_len = blksize+4;
+    uint16_t packet_number;
 
-    memcpy(&opcode, (uint16_t *) &buffer, 2);
-    opcode = ntohs(opcode);
-    fprintf(stdout, "log: received packet with opcode %d.\n", opcode);
+    while (recv_len == blksize+4) {
+        int recv_len = recvfrom(sock, (char *)buffer, blksize+4, MSG_WAITALL, (struct sockaddr *)&client, (socklen_t *) &addr_len);
+        
+        memcpy(&opcode, (uint16_t *) &buffer, 2);
+        opcode = ntohs(opcode);
+        fprintf(stdout, "log: received packet with opcode %d.\n", opcode);
 
-    if (opcode == ERROR) {
-        char msg[DATA_SIZE];
-        strcpy(msg, buffer+4);
-        fprintf(stderr, "log: error - %s.\n", msg);
-        exit(1);
-    } else if (opcode == DATA) { 
-        uint16_t packet_number;
-        memcpy(&packet_number, (uint16_t *) & buffer[2], 2);
-        packet_number = ntohs(packet_number);
+        if (opcode == DATA) {
+            memcpy(&packet_number, (uint16_t *) & buffer[2], 2);
+            packet_number = ntohs(packet_number);
 
-        FILE *dest_file;
+            for (int i = 4; i < recv_len; i++)
+                fputc(buffer[i], src_file);
 
-        if ((dest_file = fopen(filename, "w+")) == NULL) {
-            fprintf(stdout, "log: could not open file.\n");
-            exit(-1);
+            send_ACK(sock, packet_number, client);
+            fprintf(stdout, "log: sended ACK packet.\n");
+            memset(buffer, 0, blksize+4);
+        } else if (opcode == ERROR) {
+            exit(1);
         }
-
-        char data[DATA_SIZE];
-        strcpy(data, buffer+4);
-        fprintf(stdout, "log: received data: %s.\n", data);
-
-        for (int i = 4; i < recv_len; i++)
-            fputc(buffer[i], dest_file);
-
-        send_ACK(sock, packet_number, client);
-        fprintf(stdout, "log: sended ACK packet.\n");
-
-        while (recv_len == 516) {
-            int recv_len = recvfrom(sock, (char *)buffer, PACKET_SIZE, MSG_WAITALL, (struct sockaddr *)&client, (socklen_t *) & client_size);
-            
-            memcpy(&opcode, (uint16_t *) & buffer, 2);
-            opcode = ntohs(opcode);
-            fprintf(stdout, "log: received packet with opcode %d.\n", opcode);
-
-            if (opcode == DATA) {
-                memcpy(&packet_number, (uint16_t *) & buffer[2], 2);
-                packet_number = ntohs(packet_number);
-
-                strcpy(data, buffer+4);
-                fprintf(stdout, "log: received data: %s.\n", data);
-
-                for (int i = 4; i < recv_len; i++)
-                    fputc(buffer[i], dest_file);
-
-                send_ACK(sock, packet_number, client);
-                fprintf(stdout, "log: sended ACK packet.\n");
-            } else if (opcode == ERROR) {
-                char msg[DATA_SIZE];
-                strcpy(msg, buffer+4);
-                fprintf(stderr, "log: error - %s.\n", msg);
-                exit(1);
-            }
-
-        }
-        shutdown(sock, SHUT_RDWR);
-        close(sock);
-        fclose(dest_file);      
     }
+    shutdown(sock, SHUT_RDWR);
+    close(sock);
+    fclose(src_file);
 }
 
 int main(int argc, char **argv) {

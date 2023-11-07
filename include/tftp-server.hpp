@@ -28,16 +28,14 @@ void get_parametrs(struct parametrs* p, int argc, char **argv);
 
 void main_loop(struct parametrs p);
 
-void proccessing_RRQ(int sock, sockaddr_in client, char* filename, char* mode, size_t client_size);
+void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer);
 
-void proccessing_WRQ(int sock, sockaddr_in client, char* filename, char* mode, size_t client_size, struct parametrs p);
+void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer);
 
-void RRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size);
+void RRQ_octet(int sock, sockaddr_in client, size_t addr_len, struct opts o, FILE* src_file, bool with_opts);
 
-void RRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_size);
+void RRQ_netascii(int sock, sockaddr_in client, size_t addr_len, struct opts o, FILE* src_file, bool with_opts);
 
-void WRQ_octet(int sock, char* filename, sockaddr_in client, size_t client_size, struct parametrs p);
-
-void WRQ_netascii(int sock, char* filename, sockaddr_in client, size_t client_size, struct parametrs p);
+void WRQ_communication(int sock, sockaddr_in client, size_t addr_len, struct opts o, FILE* src_file, bool with_opts);
 
 #endif

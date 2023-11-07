@@ -19,12 +19,12 @@
 #define STANDART_PORT   69
 
 struct opts {
-    char* blksize;
-    char* timeout;
-    char* tsize;
+    char* blksize = (char*) "-1";
+    char* timeout = (char*) "-1";
+    char* tsize = (char*) "-1";
 };
 
-char* convert_to_ASCII(char c);
+void convert_to_ASCII(char c, char* ret);
 
 char convert_from_ASCII(char* c);
 
@@ -36,6 +36,6 @@ void send_ACK(int sock, uint16_t packet_number, struct sockaddr_in sockad);
 
 void send_ERR(int sock, uint16_t error_code, struct sockaddr_in sockad);
 
-void send_OACK();
+void send_OACK(int sock, struct opts o, struct sockaddr_in sockad);
 
 #endif
