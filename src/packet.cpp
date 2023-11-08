@@ -170,25 +170,23 @@ void send_first_request(int sock, char* filepath, struct sockaddr_in sockad, str
     }
 }
 
-void send_DATA(int sock, uint16_t packet_number, char* data, struct sockaddr_in sockad) {
+void send_DATA(int sock, uint16_t packet_number, char* data, int len, struct sockaddr_in sockad) {
     int opcode = htons(DATA);
-    char buffer[PACKET_SIZE];
+    char buffer[len];
     int buffer_len = 0;
 
     memcpy(buffer, &opcode, 2);
     buffer_len += 2;
-    fprintf(stdout, "DATA ");
+    fprintf(stdout, "DATA %d ", packet_number);
 
     packet_number = htons(packet_number);
     memcpy(buffer+buffer_len, &packet_number, 2);
     buffer_len += 2;
 
-    fprintf(stdout, "%d ", packet_number);
-
     strcpy(buffer+buffer_len, data);
     buffer_len += strlen(data);
 
-    fprintf(stdout, "%s\n", data);
+    fprintf(stdout, "len_data: %ld\n",  strlen(data));
 
     if (sendto(sock, buffer, buffer_len, MSG_CONFIRM, (const struct sockaddr *)&sockad, sizeof(sockad)) < 0) {
         exit(2);
@@ -203,13 +201,11 @@ void send_ACK(int sock, uint16_t packet_number, struct sockaddr_in sockad) {
     memcpy(buffer, &opcode, 2);
     buffer_len += 2;
 
-    fprintf(stdout, "ACK ");
+    fprintf(stdout, "ACK %d\n", packet_number);
 
     packet_number = htons(packet_number);
     memcpy(buffer+buffer_len, &packet_number, 2);
     buffer_len += 2;
-
-    fprintf(stdout, "%d\n", packet_number);
 
     if (sendto(sock, buffer, buffer_len, MSG_CONFIRM, (const struct sockaddr *)&sockad, sizeof(sockad)) < 0) {
         exit(2);

@@ -40,40 +40,47 @@ void get_parametrs(struct parametrs* p, int* oper, int argc, char **argv) {
     }
 }
 
-int check_OACK(struct opts o, char* buffer, int buffer_len) {
-    char *option;
-    char* value;
-    while (buffer_len < (strlen(buffer) - 1)) {
+int check_OACK(struct opts* o, char* buffer, int buffer_len, int recv_len) {
+    char option[512];
+    char value[512];
+
+    while (buffer_len < recv_len) {
         strcpy(option, buffer+buffer_len);
-        buffer_len += strlen(option) + 2;
+        buffer_len += strlen(option) + 1;
         
         if (strcmp(option, "blksize") == 0) {
             strcpy(value, buffer+buffer_len);
-            char number[2];
+            buffer_len += strlen(value) + 1;
+            char number[3];
             for (int i = 0; i < strlen(value) - 1; i += 2){
+                memset(number, '\0', sizeof(number));
                 strncpy(number, value+i, 2);
-                if (o.blksize[i/2] != convert_from_ASCII(number)) {
+                if (o->blksize[i/2] != convert_from_ASCII(number)) {
                     return 1;
                 }
             }
         } else if (strcmp(option, "timeout") == 0) {
             strcpy(value, buffer+buffer_len);
-            char number[2];
+            buffer_len += strlen(value) + 1;
+            char number[3];
             for (int i = 0; i < strlen(value) - 1; i += 2){
+                memset(number, '\0', sizeof(number));
                 strncpy(number, value+i, 2);
-                if (o.timeout[i/2] != convert_from_ASCII(number)) {
+                if (o->timeout[i/2] != convert_from_ASCII(number)) {
                     return 1;
                 }
             }
         } else if (strcmp(option, "tsize") == 0) {
+            char result[10];
             strcpy(value, buffer+buffer_len);
-            char number[2];
+            buffer_len += strlen(value) + 1;
+            char number[3];
             for (int i = 0; i < strlen(value) - 1; i += 2){
+                memset(number, '\0', sizeof(number));
                 strncpy(number, value+i, 2);
-                if (o.tsize[i/2] != convert_from_ASCII(number)) {
-                    return 1;
-                }
+                result[i/2] = convert_from_ASCII(number);
             }
+            strcpy(o->tsize, result);
         } else {
             return 1;
         }
@@ -89,8 +96,7 @@ void RRQ_request(int sock, sockaddr_in server, struct parametrs p) {
         exit(1);
     }
 
-    struct opts o = {(char*) "1024", (char*) "1", (char*) "0"};
-    fprintf(stdout, "blksize: %s timeout: %s tsize: %s\n", o.blksize, o.timeout, o.tsize);
+    struct opts o = {"1024", "10", "0"};
     send_first_request(sock, p.filepath, server, o, RRQ);
 
     int opcode;
@@ -103,7 +109,6 @@ void RRQ_request(int sock, sockaddr_in server, struct parametrs p) {
     memcpy(&opcode, (uint16_t *) &buffer, 2);
     buffer_len += 2;
     opcode = ntohs(opcode);
-    fprintf(stdout, "log: received packet with opcode %d.\n", opcode);
 
     if (opcode == OACK) {
     
@@ -122,7 +127,8 @@ void RRQ_request(int sock, sockaddr_in server, struct parametrs p) {
         exit(1);
     }
 
-    if (check_OACK(o, buffer, buffer_len)) {
+
+    if (check_OACK(&o, buffer, buffer_len, recv_len)) {
         send_ERR(sock, 8, server);
         exit(1);
     } else
@@ -130,12 +136,12 @@ void RRQ_request(int sock, sockaddr_in server, struct parametrs p) {
 
     memset(buffer, 0, blksize+4);
     uint16_t packet_number;
+    recv_len = blksize+4;
     while (recv_len == blksize+4) {
-        int recv_len = recvfrom(sock, (char *)buffer, blksize+4, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) &addr_len);
+        recv_len = recvfrom(sock, (char *)buffer, blksize+4, MSG_WAITALL, (struct sockaddr *)&server, (socklen_t *) &addr_len);
         
         memcpy(&opcode, (uint16_t *) &buffer, 2);
         opcode = ntohs(opcode);
-        fprintf(stdout, "log: received packet with opcode %d.\n", opcode);
 
         if (opcode == DATA) {
             memcpy(&packet_number, (uint16_t *) & buffer[2], 2);
@@ -145,7 +151,6 @@ void RRQ_request(int sock, sockaddr_in server, struct parametrs p) {
                 fputc(buffer[i], dest_file);
 
             send_ACK(sock, packet_number, server);
-            fprintf(stdout, "log: sended ACK packet.\n");
             memset(buffer, 0, blksize+4);
         } else if (opcode == ERROR) {
             exit(1);
@@ -168,10 +173,11 @@ void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
     int file_size = ftell(dest_file);
     fseek(dest_file, 0, SEEK_SET);
 
-    char* chars_filesize;
+    char chars_filesize[10];
     sprintf(chars_filesize, "%d", file_size);
 
-    struct opts o = {(char*) "1024", (char*) "1", chars_filesize};
+    struct opts o = {"1024", "10", "0"};
+    strcpy(o.tsize, chars_filesize);
     send_first_request(sock, p.filepath, server, o, WRQ);
 
     int opcode;
@@ -184,7 +190,6 @@ void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
     memcpy(&opcode, (uint16_t *) &buffer, 2);
     buffer_len += 2;
     opcode = ntohs(opcode);
-    fprintf(stdout, "log: received packet with opcode %d.\n", opcode);
 
     if (opcode == OACK) {
     
@@ -195,7 +200,7 @@ void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
         exit(1);
     }
 
-    if (check_OACK(o, buffer, buffer_len))
+    if (check_OACK(&o, buffer, buffer_len, recv_len))
         send_ERR(sock, 8, server);
 
     uint16_t packet_number = 1;
@@ -209,8 +214,7 @@ void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
         i += dim;
 
         if (i == blksize || dim == 0) {
-            send_DATA(sock, packet_number, data, server);
-            fprintf(stdout, "log: DATA was sended\n");
+            send_DATA(sock, packet_number, data, blksize+4, server);
             memset(data, 0, blksize);
             memset(buffer, 0, blksize+4);
             recv_len = recvfrom(sock, (char*) buffer, blksize+4, MSG_WAITALL, (struct sockaddr*) &server, (socklen_t*) &addr_len);
@@ -264,11 +268,9 @@ int main(int argc, char **argv) {
     server.sin_port = htons(p.port);
 
     // RRQ/WRQ
-    fprintf(stdout, "op: %d\n", operation);
     if (operation == WRQ) {
         char path[512];
         scanf("%511s", path);
-        fprintf(stdout, "%s\n", path);
         p.filepath = path;
 
         WRQ_request(sock, server, p);

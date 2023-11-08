@@ -17,49 +17,59 @@ void get_parametrs(struct parametrs* p, int argc, char **argv) {
     p->root_dirpath = argv[argc-1];
 }
 
-int control_OACK(struct opts* o, char* buffer, int buffer_len) {
-    char *option;
-    char* value;
+int control_OACK(struct opts* o, char* buffer, int buffer_len, int recv_len) {
+    char option[512];
+    char value[512];
     char result[PACKET_SIZE];
 
-    if (buffer_len >= (strlen(buffer) - 1)) {
-        o->blksize = (char*) "512";
+
+    if (buffer_len == recv_len) {
+        strcpy(o->blksize, "512");
         return 2;
     }
     
-    while (buffer_len < (strlen(buffer) - 1)) {
+
+    while (buffer_len < recv_len) {
         strcpy(option, buffer+buffer_len);
-        fprintf(stdout, "OPTS: %s\n", option);
-        buffer_len += strlen(option) + 2;
+        buffer_len += strlen(option) + 1;
         
         if (strcmp(option, "blksize") == 0) {
             strcpy(value, buffer+buffer_len);
-            char number[2];
+            buffer_len += strlen(value) + 1;
+            char number[3];
             for (int i = 0; i < strlen(value) - 1; i += 2){
+                memset(number, '\0', sizeof(number));
                 strncpy(number, value+i, 2);
                 result[i/2] = convert_from_ASCII(number);
             }
-            o->blksize = result;
+            strcpy(o->blksize, result);
+
         } else if (strcmp(option, "timeout") == 0) {
             strcpy(value, buffer+buffer_len);
-            char number[2];
+            buffer_len += strlen(value) + 1;
+            char number[3];
             for (int i = 0; i < strlen(value) - 1; i += 2){
+                memset(number, '\0', sizeof(number));
                 strncpy(number, value+i, 2);
                 result[i/2] = convert_from_ASCII(number);
             }
-            o->timeout = result;
+            strcpy(o->timeout, result);
         } else if (strcmp(option, "tsize") == 0) {
             strcpy(value, buffer+buffer_len);
-            char number[2];
+            buffer_len += strlen(value) + 1;
+            char number[3];
             for (int i = 0; i < strlen(value) - 1; i += 2){
+                memset(number, '\0', sizeof(number));
                 strncpy(number, value+i, 2);
                 result[i/2] = convert_from_ASCII(number);
             }
-            o->tsize = result;
+            strcpy(o->tsize, result);
         } else {
             return 1;
         }
+        memset(result, '\0', PACKET_SIZE);
     }
+
     return 0;
 }
 
@@ -104,14 +114,14 @@ void main_loop(struct parametrs p) {
         opcode = ntohs(opcode);
          
         if (opcode == RRQ) {
-            proccessing_RRQ(sock, client, addr_len, buffer);
+            proccessing_RRQ(sock, client, addr_len, buffer, recv_len);
         } else if (opcode == WRQ) {
-            proccessing_WRQ(sock, client, addr_len, buffer);
+            proccessing_WRQ(sock, client, addr_len, buffer, recv_len);
         }
     }
 }
 
-void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer) {
+void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len) {
     struct opts o;
     char filename[512];
     int buffer_len = 2;
@@ -122,17 +132,14 @@ void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
 
     strcpy(mode, buffer+buffer_len);
     buffer_len += strlen(mode) + 1;
-    fprintf(stdout, "log: received packet with filename: %s mode: %s\n",filename, mode);
 
     pid_t fork_id = fork();
 
     if (fork_id > 0) { //parent
         return;
     } else if (fork_id == 0) { //children
-        fprintf(stdout, "Child started\n");
         FILE *src_file;
         if (strncmp(mode, "octet", 5) == 0) {
-            fprintf(stdout, "Mode octet\n");
             src_file = fopen(filename, "rb");
         } else if (strncmp(mode, "netascii", 8) == 0) {
             src_file = fopen(filename, "r");
@@ -145,13 +152,11 @@ void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
 
         int child_sock = socket(AF_INET, SOCK_DGRAM, 0);
 
-        fprintf(stdout, "Checking OACK len: %d\n", buffer_len);
-        int res = control_OACK(&o, buffer, buffer_len);
-        fprintf(stdout, "Result check OACK %d\n", res);
+        int res = control_OACK(&o, buffer, buffer_len, recv_len);
         if (res == 2) {
 
         } else if (res == 1)
-            send_ERR(sock, 8, client);
+            send_ERR(child_sock, 8, client);
         else if (res == 0) {
             if (strcmp(o.timeout, "-1") != 0) {
                 struct timeval timeout;
@@ -169,12 +174,10 @@ void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
                 int file_size = ftell(src_file);
                 fseek(src_file, 0, SEEK_SET);
 
-                char* chars_filesize;
-                sprintf(chars_filesize, "%d", file_size); 
-                o.tsize = chars_filesize;  
+                sprintf(o.tsize, "%d", file_size); 
             }
 
-            send_OACK(sock, o, client);
+            send_OACK(child_sock, o, client);
         }
 
         if (strncmp(mode, "octet", 5) == 0) {
@@ -194,11 +197,7 @@ void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
 
 void RRQ_octet(int sock, sockaddr_in client, size_t client_size, struct opts o, FILE* src_file, bool with_opts) {
 
-    int blksize = PACKET_SIZE-4;
-    if (strcmp(o.blksize, "-1") != 0) {
-        blksize = stoi(o.blksize);
-    }
-
+    int blksize = stoi(o.blksize);
     char buffer[blksize+4];
     memset(buffer, 0, blksize+4);
     int recv_len;
@@ -208,9 +207,11 @@ void RRQ_octet(int sock, sockaddr_in client, size_t client_size, struct opts o, 
     uint16_t recv_packet_number;
 
     if (!with_opts) {
+
         recv_len = recvfrom(sock, (char*) buffer, blksize+4, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &client_size);
         memcpy(&opcode, (uint16_t*) &buffer, 2);
         opcode = ntohs(opcode);
+
 
         if (opcode != ACK) {
             fclose(src_file);
@@ -218,6 +219,7 @@ void RRQ_octet(int sock, sockaddr_in client, size_t client_size, struct opts o, 
             close(sock);
             exit(1);
         }
+
 
         memcpy(&recv_packet_number, (uint16_t*) &buffer[2], 2);
         recv_packet_number = ntohs(recv_packet_number);
@@ -238,8 +240,7 @@ void RRQ_octet(int sock, sockaddr_in client, size_t client_size, struct opts o, 
         i += dim;
 
         if (i == blksize || dim == 0) {
-            send_DATA(sock, packet_number, data, client);
-            fprintf(stdout, "log: DATA was sended\n");
+            send_DATA(sock, packet_number, data, blksize+4, client);
             memset(data, 0, blksize);
             memset(buffer, 0, blksize+4);
             recv_len = recvfrom(sock, (char*) buffer, blksize+4, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &client_size);
@@ -326,8 +327,7 @@ void RRQ_netascii(int sock, sockaddr_in client, size_t client_size, struct opts 
         }
 
         if (i == blksize || c == EOF) {
-            send_DATA(sock, packet_number, data, client);
-            fprintf(stdout, "log: DATA was sended\n");
+            send_DATA(sock, packet_number, data, blksize+4, client);
             memset(data, 0, blksize);
             memset(buffer, 0, blksize+4);
             recv_len = recvfrom(sock, (char*) buffer, blksize+4, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &client_size);
@@ -358,7 +358,7 @@ void RRQ_netascii(int sock, sockaddr_in client, size_t client_size, struct opts 
     } while (c != EOF);
 }
 
-void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer) {
+void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len) {
     struct opts o;
     char filename[512];
     int buffer_len = 2;
@@ -368,7 +368,6 @@ void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
     buffer_len += strlen(filename) + 1;
 
     strcpy(mode, buffer+buffer_len);
-    fprintf(stdout, "log: received packet with filename: %s mode: %s\n",filename, mode);
 
     pid_t fork_id = fork();
 
@@ -389,7 +388,7 @@ void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
 
         int child_sock = socket(AF_INET, SOCK_DGRAM, 0);
 
-        int res = control_OACK(&o, buffer, buffer_len);
+        int res = control_OACK(&o, buffer, buffer_len, recv_len);
         if (res == 2) {
             send_ACK(sock, 0, client);
         } else if (res == 1)
@@ -422,7 +421,6 @@ void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
 
     } else if (fork_id < 0) {
         send_ERR(sock, 0, client);
-        fprintf(stderr, "log: error while creating child process for client.\n");
         return;
     }
 }
@@ -444,7 +442,6 @@ void WRQ_communication(int sock, sockaddr_in client, size_t addr_len, struct opt
         
         memcpy(&opcode, (uint16_t *) &buffer, 2);
         opcode = ntohs(opcode);
-        fprintf(stdout, "log: received packet with opcode %d.\n", opcode);
 
         if (opcode == DATA) {
             memcpy(&packet_number, (uint16_t *) & buffer[2], 2);
@@ -454,7 +451,6 @@ void WRQ_communication(int sock, sockaddr_in client, size_t addr_len, struct opt
                 fputc(buffer[i], src_file);
 
             send_ACK(sock, packet_number, client);
-            fprintf(stdout, "log: sended ACK packet.\n");
             memset(buffer, 0, blksize+4);
         } else if (opcode == ERROR) {
             exit(1);
