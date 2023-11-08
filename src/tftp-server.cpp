@@ -27,11 +27,11 @@ int control_OACK(struct opts* o, char* buffer, int buffer_len, int recv_len) {
         strcpy(o->blksize, "512");
         return 2;
     }
-    
 
     while (buffer_len < recv_len) {
         strcpy(option, buffer+buffer_len);
         buffer_len += strlen(option) + 1;
+        memset(result, '\0', PACKET_SIZE);
         
         if (strcmp(option, "blksize") == 0) {
             strcpy(value, buffer+buffer_len);
@@ -43,6 +43,7 @@ int control_OACK(struct opts* o, char* buffer, int buffer_len, int recv_len) {
                 result[i/2] = convert_from_ASCII(number);
             }
             strcpy(o->blksize, result);
+            o->blksize[strlen(result)] = '\0';
 
         } else if (strcmp(option, "timeout") == 0) {
             strcpy(value, buffer+buffer_len);
@@ -67,7 +68,6 @@ int control_OACK(struct opts* o, char* buffer, int buffer_len, int recv_len) {
         } else {
             return 1;
         }
-        memset(result, '\0', PACKET_SIZE);
     }
 
     return 0;
@@ -114,21 +114,24 @@ void main_loop(struct parametrs p) {
         opcode = ntohs(opcode);
          
         if (opcode == RRQ) {
-            proccessing_RRQ(sock, client, addr_len, buffer, recv_len);
+            proccessing_RRQ(sock, client, addr_len, buffer, recv_len, p);
         } else if (opcode == WRQ) {
-            proccessing_WRQ(sock, client, addr_len, buffer, recv_len);
+            proccessing_WRQ(sock, client, addr_len, buffer, recv_len, p);
         }
     }
 }
 
-void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len) {
+void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len, struct parametrs p) {
     struct opts o;
-    char filename[512];
+    char filename[PACKET_SIZE];
     int buffer_len = 2;
     char mode[10];
+    char *filepath = p.root_dirpath;
 
     strcpy(filename, buffer+buffer_len);
     buffer_len += strlen(filename) + 1;
+    strcat(filepath, "/");
+    strcat(filepath, filename);
 
     strcpy(mode, buffer+buffer_len);
     buffer_len += strlen(mode) + 1;
@@ -140,9 +143,9 @@ void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
     } else if (fork_id == 0) { //children
         FILE *src_file;
         if (strncmp(mode, "octet", 5) == 0) {
-            src_file = fopen(filename, "rb");
+            src_file = fopen(filepath, "rb");
         } else if (strncmp(mode, "netascii", 8) == 0) {
-            src_file = fopen(filename, "r");
+            src_file = fopen(filepath, "r");
         }
 
         if (src_file == NULL) {
@@ -164,7 +167,7 @@ void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
                 timeout.tv_usec = 0;
 
                 if (setsockopt(child_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-                    send_ERR(sock, 0, client);
+                    send_ERR(child_sock, 0, client);
                     return;
                 }
             }
@@ -207,11 +210,9 @@ void RRQ_octet(int sock, sockaddr_in client, size_t client_size, struct opts o, 
     uint16_t recv_packet_number;
 
     if (!with_opts) {
-
         recv_len = recvfrom(sock, (char*) buffer, blksize+4, MSG_WAITALL, (struct sockaddr*) &client, (socklen_t*) &client_size);
         memcpy(&opcode, (uint16_t*) &buffer, 2);
         opcode = ntohs(opcode);
-
 
         if (opcode != ACK) {
             fclose(src_file);
@@ -219,7 +220,6 @@ void RRQ_octet(int sock, sockaddr_in client, size_t client_size, struct opts o, 
             close(sock);
             exit(1);
         }
-
 
         memcpy(&recv_packet_number, (uint16_t*) &buffer[2], 2);
         recv_packet_number = ntohs(recv_packet_number);
@@ -272,18 +272,12 @@ void RRQ_octet(int sock, sockaddr_in client, size_t client_size, struct opts o, 
 }
 
 void RRQ_netascii(int sock, sockaddr_in client, size_t client_size, struct opts o, FILE* src_file, bool with_opts) {
-
-    int blksize = PACKET_SIZE-4;
-    if (strcmp(o.blksize, "-1") != 0) {
-        blksize = stoi(o.blksize);
-    }
-
+    int blksize = stoi(o.blksize);
     char buffer[blksize+4];
+    memset(buffer, 0, blksize+4);
     int recv_len;
     int opcode;
 
-    memset(buffer, 0, blksize+4);
-    
     uint16_t packet_number = 1;
     uint16_t recv_packet_number;
 
@@ -310,20 +304,15 @@ void RRQ_netascii(int sock, sockaddr_in client, size_t client_size, struct opts 
         }
     }
 
-
     char data[blksize];
     int i = 0;
     char c;
-
-    memset(buffer, 0, blksize+4);
-    memset(data, 0, blksize);
-
     do {
         c = fgetc(src_file);
 
         if(c != EOF) {
-            i++;
             data[i] = c;
+            i++;
         }
 
         if (i == blksize || c == EOF) {
@@ -358,16 +347,21 @@ void RRQ_netascii(int sock, sockaddr_in client, size_t client_size, struct opts 
     } while (c != EOF);
 }
 
-void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len) {
+void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len, struct parametrs p) {
     struct opts o;
+    memset(&o, 0, sizeof(struct opts));
     char filename[512];
     int buffer_len = 2;
     char mode[10];
+    char *filepath = p.root_dirpath;
 
     strcpy(filename, buffer+buffer_len);
     buffer_len += strlen(filename) + 1;
+    strcat(filepath, "/");
+    strcat(filepath, filename);
 
     strcpy(mode, buffer+buffer_len);
+    buffer_len += strlen(mode) + 1;
 
     pid_t fork_id = fork();
 
@@ -376,9 +370,10 @@ void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
     } else if (fork_id == 0) { //children
         FILE *src_file;
         if (strncmp(mode, "octet", 5) == 0) {
-            src_file = fopen(filename, "wb");
+            fprintf(stdout, "|%s|\n", filepath);
+            src_file = fopen(filepath, "w+b");
         } else if (strncmp(mode, "netascii", 8) == 0) {
-            src_file = fopen(filename, "w");
+            src_file = fopen(filepath, "w+");
         }
 
         if (src_file == NULL) {
@@ -389,10 +384,11 @@ void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
         int child_sock = socket(AF_INET, SOCK_DGRAM, 0);
 
         int res = control_OACK(&o, buffer, buffer_len, recv_len);
+        fprintf(stdout, "blksize: %s timeout: %s tsize: %s\n", o.blksize, o.timeout, o.tsize);
         if (res == 2) {
-            send_ACK(sock, 0, client);
+            send_ACK(child_sock, 0, client);
         } else if (res == 1)
-            send_ERR(sock, 8, client);
+            send_ERR(child_sock, 8, client);
         else if (res == 0) {
             if (strcmp(o.timeout, "-1") != 0) {
                 struct timeval timeout;
@@ -400,7 +396,7 @@ void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
                 timeout.tv_usec = 0;
 
                 if (setsockopt(child_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-                    send_ERR(sock, 0, client);
+                    send_ERR(child_sock, 0, client);
                     return;
                 }
             }
@@ -409,16 +405,15 @@ void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
                 long pages = sysconf(_SC_PHYS_PAGES);
                 long page_size = sysconf(_SC_PAGE_SIZE);
                 if (pages*page_size < stoi(o.tsize)) {
-                    send_ERR(sock, 3, client);
+                    send_ERR(child_sock, 3, client);
                     return;
                 }
             }
 
-            send_OACK(sock, o, client);
+            send_OACK(child_sock, o, client);
         }
 
         WRQ_communication(child_sock, client, addr_len, o, src_file, res);
-
     } else if (fork_id < 0) {
         send_ERR(sock, 0, client);
         return;
@@ -427,18 +422,14 @@ void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer
 
 void WRQ_communication(int sock, sockaddr_in client, size_t addr_len, struct opts o, FILE* src_file, bool with_opts) {
     
-    int blksize = PACKET_SIZE-4;
-    if (strcmp(o.blksize, "-1") != 0) {
-        blksize = stoi(o.blksize);
-    }
-
+    int blksize = stoi(o.blksize);
     int opcode;
-    char buffer[PACKET_SIZE];
-    int recv_len = blksize+4;
+    char buffer[blksize+4];
     uint16_t packet_number;
 
+    int recv_len = blksize+4;
     while (recv_len == blksize+4) {
-        int recv_len = recvfrom(sock, (char *)buffer, blksize+4, MSG_WAITALL, (struct sockaddr *)&client, (socklen_t *) &addr_len);
+        recv_len = recvfrom(sock, (char *)buffer, blksize+4, MSG_WAITALL, (struct sockaddr *)&client, (socklen_t *) &addr_len);
         
         memcpy(&opcode, (uint16_t *) &buffer, 2);
         opcode = ntohs(opcode);
@@ -450,15 +441,17 @@ void WRQ_communication(int sock, sockaddr_in client, size_t addr_len, struct opt
             for (int i = 4; i < recv_len; i++)
                 fputc(buffer[i], src_file);
 
+            fprintf(stdout, "\n\nDATA: %s\n\n", buffer+4);
+
             send_ACK(sock, packet_number, client);
             memset(buffer, 0, blksize+4);
         } else if (opcode == ERROR) {
             exit(1);
         }
     }
+    fclose(src_file);
     shutdown(sock, SHUT_RDWR);
     close(sock);
-    fclose(src_file);
 }
 
 int main(int argc, char **argv) {

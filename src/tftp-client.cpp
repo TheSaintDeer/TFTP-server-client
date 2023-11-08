@@ -156,29 +156,27 @@ void RRQ_request(int sock, sockaddr_in server, struct parametrs p) {
             exit(1);
         }
     }
+    fclose(dest_file);   
     shutdown(sock, SHUT_RDWR);
     close(sock);
-    fclose(dest_file);   
 }
 
 void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
-    FILE *dest_file = fopen(p.dest_filepath, "r+b");
+    FILE *dest_file = fopen(p.filepath, "r+b");
 
     if (dest_file == NULL) {
         fprintf(stdout, "log: could not open file.\n");
         exit(1);
     }
 
+    struct opts o = {"1024", "10", "0"};
+
     fseek(dest_file, 0, SEEK_END);
     int file_size = ftell(dest_file);
     fseek(dest_file, 0, SEEK_SET);
+    sprintf(o.tsize, "%d", file_size);
 
-    char chars_filesize[10];
-    sprintf(chars_filesize, "%d", file_size);
-
-    struct opts o = {"1024", "10", "0"};
-    strcpy(o.tsize, chars_filesize);
-    send_first_request(sock, p.filepath, server, o, WRQ);
+    send_first_request(sock, p.dest_filepath, server, o, WRQ);
 
     int opcode;
     int blksize = stoi(o.blksize);
@@ -200,8 +198,10 @@ void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
         exit(1);
     }
 
-    if (check_OACK(&o, buffer, buffer_len, recv_len))
+    if (check_OACK(&o, buffer, buffer_len, recv_len)) {
         send_ERR(sock, 8, server);
+        return;
+    }
 
     uint16_t packet_number = 1;
     uint16_t recv_packet_number;
@@ -244,9 +244,10 @@ void WRQ_request(int sock, sockaddr_in server, struct parametrs p) {
         }
     } while(dim == 1);   
 
+    fclose(dest_file);
     shutdown(sock, SHUT_RDWR);
     close(sock);
-    exit(1);     
+    return;   
 }
 
 int main(int argc, char **argv) {

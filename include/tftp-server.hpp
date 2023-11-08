@@ -28,9 +28,9 @@ void get_parametrs(struct parametrs* p, int argc, char **argv);
 
 void main_loop(struct parametrs p);
 
-void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len);
+void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len, struct parametrs p);
 
-void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len);
+void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len, struct parametrs p);
 
 void RRQ_octet(int sock, sockaddr_in client, size_t addr_len, struct opts o, FILE* src_file, bool with_opts);
 
