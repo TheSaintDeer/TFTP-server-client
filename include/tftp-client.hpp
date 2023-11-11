@@ -13,8 +13,13 @@
 #include <netinet/in.h>
 
 #include "packet.hpp"
+#include "common.hpp"
 
 using namespace std;
+
+int sock;
+
+sockaddr_in server;
 
 /**
  * Structure for input parametrs
@@ -32,21 +37,5 @@ struct parametrs {
  * @param oper operation RRW or WRQ
 */
 void get_parametrs(struct parametrs* p, int* oper, int argc, char **argv);
-
-/**
- * Continuing with the RRQ operation
- * @param sock client socket file descriptor
- * @param server the socket to be used to send the packet
- * @param p input parametrs
-*/
-void RRQ_request(int sock, sockaddr_in server, struct parametrs p);
-
-/**
- * Continuing with the WRQ operation
- * @param sock client socket file descriptor
- * @param server the socket to be used to send the packet
- * @param p input parametrs
-*/
-void get_respones_RRQ(int sock, sockaddr_in server, struct parametrs p);
 
 #endif

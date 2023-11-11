@@ -13,8 +13,13 @@
 #include <netinet/in.h> 
 
 #include "packet.hpp"
+#include "common.hpp"
 
 using namespace std;
+
+int sock;
+
+struct sockaddr_in client;
 
 struct parametrs {
     int port = STANDART_PORT;
@@ -28,14 +33,6 @@ void get_parametrs(struct parametrs* p, int argc, char **argv);
 
 void main_loop(struct parametrs p);
 
-void proccessing_RRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len, struct parametrs p);
-
-void proccessing_WRQ(int sock, sockaddr_in client, size_t addr_len, char* buffer, int recv_len, struct parametrs p);
-
-void RRQ_octet(int sock, sockaddr_in client, size_t addr_len, struct opts o, FILE* src_file, bool with_opts);
-
-void RRQ_netascii(int sock, sockaddr_in client, size_t addr_len, struct opts o, FILE* src_file, bool with_opts);
-
-void WRQ_communication(int sock, sockaddr_in client, size_t addr_len, struct opts o, FILE* src_file, bool with_opts);
+void processing_request(int op, size_t addr_len, char* buffer, int recv_len, struct parametrs p);
 
 #endif

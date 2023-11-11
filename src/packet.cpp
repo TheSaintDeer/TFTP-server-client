@@ -1,64 +1,5 @@
 #include "../include/packet.hpp"
 
-void convert_to_ASCII(char c, char* ret) {
-    switch(c) {
-        case '0':
-            strcpy(ret, "48");
-            break;
-        case '1':
-            strcpy(ret, "49");
-            break;
-        case '2':
-            strcpy(ret, "50");
-            break;
-        case '3':
-            strcpy(ret, "51");
-            break;
-        case '4':
-            strcpy(ret, "52");
-            break;
-        case '5':
-            strcpy(ret, "53");
-            break;
-        case '6':
-            strcpy(ret, "54");
-            break;
-        case '7':
-            strcpy(ret, "55");
-            break;
-        case '8':
-            strcpy(ret, "56");
-            break;
-        case '9':
-            strcpy(ret, "57");
-            break;
-    }
-}
-
-char convert_from_ASCII(char* c) {
-    if (strcmp(c, "48") == 0)
-        return '0';
-    else if (strcmp(c, "49") == 0)
-        return '1';
-    else if (strcmp(c, "50") == 0)
-        return '2';
-    else if (strcmp(c, "51") == 0)
-        return '3';
-    else if (strcmp(c, "52") == 0)
-        return '4';
-    else if (strcmp(c, "53") == 0)
-        return '5';
-    else if (strcmp(c, "54") == 0)
-        return '6';
-    else if (strcmp(c, "55") == 0)
-        return '7';
-    else if (strcmp(c, "56") == 0)
-        return '8';
-    else if (strcmp(c, "57") == 0)
-        return '9';
-    exit(-1);
-}
-
 void send_first_request(int sock, char* filepath, struct sockaddr_in sockad, struct opts o, int operation) {
     char buffer[1024];
     char mode[10] = MODE;
@@ -108,6 +49,7 @@ void send_first_request(int sock, char* filepath, struct sockaddr_in sockad, str
     buffer_len++;
 
     for (int i = 0; i < strlen(o.blksize); i++) {
+        
         convert_to_ASCII(o.blksize[i], c);
         // fprintf(stdout, "blksize - block: %d ascii: %s\n", i, c);
         // fprintf(stdout, "number: %c\n", convert_from_ASCII(c));
@@ -183,10 +125,10 @@ void send_DATA(int sock, uint16_t packet_number, char* data, int len, struct soc
     memcpy(buffer+buffer_len, &packet_number, 2);
     buffer_len += 2;
 
+    fprintf(stdout, "len_data: %ld\n", strlen(data));
     strcpy(buffer+buffer_len, data);
     buffer_len += strlen(data);
 
-    fprintf(stdout, "len_data: %ld\n",  strlen(data));
 
     if (sendto(sock, buffer, buffer_len, MSG_CONFIRM, (const struct sockaddr *)&sockad, sizeof(sockad)) < 0) {
         exit(2);

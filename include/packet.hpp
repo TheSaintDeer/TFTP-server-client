@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <netinet/in.h>
 
+#include "common.hpp"
+
 #define PACKET_SIZE     516
 #define MODE            "octet"
 #define RRQ             1
@@ -23,10 +25,6 @@ struct opts {
     char timeout[10] = "-1";
     char tsize[10] = "-1";
 };
-
-void convert_to_ASCII(char c, char* ret);
-
-char convert_from_ASCII(char* c);
 
 void send_first_request(int sock, char* filepath, struct sockaddr_in sockad, struct opts o, int operation);
 
