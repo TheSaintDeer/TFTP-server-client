@@ -1,5 +1,10 @@
+// Name: Ivan Golikov
+// Login: xgolik00
+
 #include "../include/common.hpp"
 
+/* A function designed to convert character into an ascii code
+*/
 void convert_to_ASCII(char c, char* ret) {
     switch(c) {
         case '0':
@@ -35,6 +40,8 @@ void convert_to_ASCII(char c, char* ret) {
     }
 }
 
+/* A function designed to convert an ascii code into character
+*/
 char convert_from_ASCII(char* c) {
     if (strcmp(c, "48") == 0)
         return '0';
@@ -59,6 +66,9 @@ char convert_from_ASCII(char* c) {
     exit(-1);
 }
 
+/* Copying every two characters from the string src_v to the variable number 
+and then comparing with the character from the variable desc_v
+*/
 int compare_value_ascii(char *src_v, char *dest_v) {
     char number[3];
     for (int i = 0; i < strlen(src_v) - 1; i += 2){
@@ -71,6 +81,9 @@ int compare_value_ascii(char *src_v, char *dest_v) {
     return 0;
 }
 
+/*Copying every two characters from the string src_v to the variable number 
+and then copying the results to the variable desc_v
+*/
 void get_and_convert_ascii(char *src_v, char *dest_v) {
     char result[10];
     memset(result, '\0', sizeof(result));
@@ -81,4 +94,23 @@ void get_and_convert_ascii(char *src_v, char *dest_v) {
         result[i/2] = convert_from_ASCII(number);
     }
     strcpy(dest_v, result);
+}
+
+void create_path(char *filepath) {
+    char copy_filepath[512];
+    strcpy(copy_filepath, filepath);
+    char *token = strtok(copy_filepath, "/");
+    char *tmp_token = token;
+    char path[512];
+
+    memset(path, '\0', 512);
+    token = strtok(NULL, "/");
+
+    while (token != NULL) {
+        strcat(path, tmp_token);
+        strcat(path, "/");
+        mkdir(path, 0777);
+        tmp_token = token;
+        token = strtok(NULL, "/");
+    }
 }
