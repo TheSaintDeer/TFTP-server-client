@@ -271,34 +271,3 @@ void send_OACK(int sock, struct opts o, struct sockaddr_in sockad) {
     if (sendto(sock, buffer, buffer_len, MSG_CONFIRM, (const struct sockaddr *)&sockad, sizeof(sockad)) < 0)
         exit(-1);
 }
-
-// void print_log(int sock, sockaddr_in sockad, char *buffer) {
-//     struct sockaddr_in sa;
-//     int sa_len = sizeof(sa);
-
-//     if (getsockname(sock,(struct sockaddr *)&sa,(socklen_t *)&sa_len))
-//         exit(-2);
-
-//     char mode[10];
-//     int buffer_len = 0;
-//     uint16_t opcode;    
-
-//     memcpy(buffer, &opcode, 2);
-//     buffer_len += 2;
-
-//     // filename
-//     strcpy(buffer+buffer_len, filepath);
-//     buffer_len += strlen(filepath);
-
-//     memcpy(buffer+buffer_len, &end_string, 1);
-//     buffer_len++;
-
-//     // mode
-//     strcpy(buffer+buffer_len, mode);
-//     buffer_len += strlen(mode);
-
-//     memcpy(buffer+buffer_len, &end_string, 1);
-//     buffer_len++;
-
-//     fprintf(stdout, "RRQ %s:%d \"%s\" %s blksize=%s timeout=%s tsize=%s\n", inet_ntoa(sa.sin_addr), (int) ntohs(sa.sin_port), filepath, mode);
-// }

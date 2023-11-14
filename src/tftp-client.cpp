@@ -54,7 +54,7 @@ void request(int op, struct parametrs p) {
     opcode = ntohs(opcode);
 
     if (opcode == OACK) {
-        fprintf(stdout, "OACK %s:%d", inet_ntoa(server.sin_addr), (int) ntohs(server.sin_port));
+        fprintf(stderr, "OACK %s:%d", inet_ntoa(server.sin_addr), (int) ntohs(server.sin_port));
         if (control_OACK(&o, buffer, 2, recv_len))
             exit(8);
     } else if (opcode == ERROR) {
@@ -67,7 +67,7 @@ void request(int op, struct parametrs p) {
         opcode = ntohs(opcode);
         char msg[100];
         strcpy(msg, buffer+4);
-        fprintf(stdout, "ERROR %s:%d:%d %d %s", inet_ntoa(server.sin_addr), (int) ntohs(server.sin_port), (int) ntohs(sa.sin_port), opcode, msg);
+        fprintf(stderr, "ERROR %s:%d:%d %d %s", inet_ntoa(server.sin_addr), (int) ntohs(server.sin_port), (int) ntohs(sa.sin_port), opcode, msg);
         exit(opcode);
     }
 
@@ -117,7 +117,7 @@ void RRQ_loop(FILE *file, int blksize, int addr_len) {
             if (getsockname(sock,(struct sockaddr *)&sa,(socklen_t *)&sa_len))
                 exit(-2);
 
-            fprintf(stdout, "DATA %s:%d:%d %d\n", inet_ntoa(server.sin_addr), (int) ntohs(server.sin_port), (int) ntohs(sa.sin_port), packet_number);
+            fprintf(stderr, "DATA %s:%d:%d %d\n", inet_ntoa(server.sin_addr), (int) ntohs(server.sin_port), (int) ntohs(sa.sin_port), packet_number);
             send_ACK(sock, packet_number, server);
             memset(buffer, 0, blksize+4);
         } else if (opcode == ERROR) {
@@ -128,7 +128,7 @@ void RRQ_loop(FILE *file, int blksize, int addr_len) {
             opcode = ntohs(opcode);
             char msg[100];
             strcpy(msg, buffer+4);
-            fprintf(stdout, "ERROR %s:%d:%d %d %s", inet_ntoa(server.sin_addr), (int) ntohs(server.sin_port), (int) ntohs(sa.sin_port), opcode, msg);
+            fprintf(stderr, "ERROR %s:%d:%d %d %s", inet_ntoa(server.sin_addr), (int) ntohs(server.sin_port), (int) ntohs(sa.sin_port), opcode, msg);
             exit(opcode);
         }
     }
@@ -167,7 +167,7 @@ void WRQ_loop(FILE *file, int blksize, int addr_len) {
             if ((opcode != ACK) || (packet_number != recv_packet_number)) {
                 break;
             }
-            fprintf(stdout, "ACK %s:%d %d\n", inet_ntoa(server.sin_addr), (int) ntohs(server.sin_port), packet_number);
+            fprintf(stderr, "ACK %s:%d %d\n", inet_ntoa(server.sin_addr), (int) ntohs(server.sin_port), packet_number);
 
             i = 0;
             packet_number++;
@@ -191,28 +191,28 @@ int control_OACK(struct opts* o, char* buffer, int buffer_len, int recv_len) {
         if (strcmp(option, "blksize") == 0) {
             if (compare_value_ascii(value, o->blksize))
                 return 1;
-            fprintf(stdout, " blksize=%s", o->blksize);
+            fprintf(stderr, " blksize=%s", o->blksize);
 
         } else if (strcmp(option, "timeout") == 0) {
             if (compare_value_ascii(value, o->timeout))
                 return 1;
-            fprintf(stdout, " timeout=%s", o->timeout);
+            fprintf(stderr, " timeout=%s", o->timeout);
 
         } else if (strcmp(option, "tsize") == 0) {
             get_and_convert_ascii(value, o->tsize);
-            fprintf(stdout, " timeout=%s", o->timeout);
+            fprintf(stderr, " timeout=%s", o->timeout);
         } else {
             return 1;
         }
     }
-    fprintf(stdout, "\n");
+    fprintf(stderr, "\n");
     return 0;
 }
 
 void get_parametrs(struct parametrs* p, int* oper, int argc, char **argv) {
     int c;
 
-    while ((c = getopt (argc, argv, ":h:p:f:t:m:")) != -1) {
+    while ((c = getopt(argc, argv, ":h:p:f:t:m:")) != -1) {
         switch (c) {
         case 'h':
             p->hostname = optarg;

@@ -1,7 +1,0 @@
-.vscode
-tftp-client
-tftp-server
-temp.txt
-.gitignore
-folder*
-serverDownload

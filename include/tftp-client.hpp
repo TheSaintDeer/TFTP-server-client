@@ -4,8 +4,8 @@
 #ifndef CLIENT
 #define CLIENT
 
-#include <iostream>
 #include <unistd.h>
+#include <iostream>
 
 #include "packet.hpp"
 #include "common.hpp"

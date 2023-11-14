@@ -71,8 +71,11 @@ void processing_request(int op, size_t addr_len, char* buffer, int recv_len, str
     char mode[10];
 
     // determining the full path to the file
-    char *filepath = p.root_dirpath;   
-    strcat(filepath, "/");
+    char *filepath;
+    if (op == WRQ) {
+        filepath = p.root_dirpath;   
+        strcat(filepath, "/");
+    }
 
     strcpy(filename, buffer+buffer_len);
     buffer_len += strlen(filename) + 1;
@@ -88,12 +91,13 @@ void processing_request(int op, size_t addr_len, char* buffer, int recv_len, str
     int child_sock = socket(AF_INET, SOCK_DGRAM, 0);
 
     if (op == RRQ) 
-        fprintf(stdout, "RRQ %s:%d \"%s\" %s", inet_ntoa(client.sin_addr), (int) ntohs(client.sin_port), filename, mode);
+        fprintf(stderr, "RRQ %s:%d \"%s\" %s", inet_ntoa(client.sin_addr), (int) ntohs(client.sin_port), filename, mode);
     else
-        fprintf(stdout, "WRQ %s:%d \"%s\" %s", inet_ntoa(client.sin_addr), (int) ntohs(client.sin_port), filename, mode);
+        fprintf(stderr, "WRQ %s:%d \"%s\" %s", inet_ntoa(client.sin_addr), (int) ntohs(client.sin_port), filename, mode);
 
     // work with or without OPTS
     int res = control_opts(&o, buffer, buffer_len, recv_len);
+    fprintf(stdout, "OUT %s\n", filepath);
     FILE *file = open_file(op, filepath, mode);
     switch (res) { // unknown OPT
         case 2:
@@ -221,7 +225,7 @@ void WRQ_handling(size_t addr_len, struct opts o, FILE* file, int c_sock) {
             if (getsockname(c_sock,(struct sockaddr *)&sa,(socklen_t *)&sa_len))
                 exit(-2);
 
-            fprintf(stdout, "DATA %s:%d:%d %d\n", inet_ntoa(client.sin_addr), (int) ntohs(client.sin_port), (int) ntohs(sa.sin_port), packet_number);
+            fprintf(stderr, "DATA %s:%d:%d %d\n", inet_ntoa(client.sin_addr), (int) ntohs(client.sin_port), (int) ntohs(sa.sin_port), packet_number);
             send_ACK(c_sock, packet_number, client);
             memset(buffer, 0, blksize+4);
         } else {
@@ -232,6 +236,7 @@ void WRQ_handling(size_t addr_len, struct opts o, FILE* file, int c_sock) {
 }
 
 FILE *open_file(int op, char *filepath, char *mode) {
+    fprintf(stdout, "%s\n", filepath);
 
     if (op == WRQ) {
         // if the file is already existed 
@@ -271,7 +276,7 @@ int control_opts(struct opts* o, char* buffer, int buffer_len, int recv_len) {
 
     if (buffer_len == recv_len) {
         strcpy(o->blksize, "512");
-        fprintf(stdout, "\n");
+        fprintf(stderr, "\n");
         return 1;
     }
 
@@ -289,21 +294,21 @@ int control_opts(struct opts* o, char* buffer, int buffer_len, int recv_len) {
         // get option and its value
         if (strcmp(option, "blksize") == 0) {
             get_and_convert_ascii(value, o->blksize);
-            fprintf(stdout, " blksize=%s", o->blksize);
+            fprintf(stderr, " blksize=%s", o->blksize);
 
         } else if (strcmp(option, "timeout") == 0) {
             get_and_convert_ascii(value, o->timeout);
-            fprintf(stdout, " timeout=%s", o->timeout);
+            fprintf(stderr, " timeout=%s", o->timeout);
 
         } else if (strcmp(option, "tsize") == 0) {
             get_and_convert_ascii(value, o->tsize);
-            fprintf(stdout, " tsize=%s", o->tsize);
+            fprintf(stderr, " tsize=%s", o->tsize);
             
         } else {
             return 2;
         }
     }
-    fprintf(stdout, "\n");
+    fprintf(stderr, "\n");
     return 0;
 }
 
@@ -356,28 +361,30 @@ void control_ACK(FILE *file, int packet_len, size_t addr_len, uint16_t packet_nu
         exit(0);
     }
 
-    fprintf(stdout, "ACK %s:%d %d\n", inet_ntoa(client.sin_addr), (int) ntohs(client.sin_port), packet_number);
+    fprintf(stderr, "ACK %s:%d %d\n", inet_ntoa(client.sin_addr), (int) ntohs(client.sin_port), packet_number);
 }
 
 void get_parametrs(struct parametrs* p, int argc, char **argv) {
     int c;
 
-    if (argc != 4) {
+    if (argc == 4) {
+        while ((c = getopt (argc, argv, "p:")) != -1) {
+            switch (c) {
+                case 'p':
+                    p->port = atoi(optarg);
+                    break;
+            }
+        }
+        p->root_dirpath = argv[argc-1];
+    } else if (argc == 2) {
+        p->root_dirpath = argv[argc-1];
+    } else {
         fprintf(stderr, "Invalid number of arguments.\n");
         exit(-1);
     }
 
-    while ((c = getopt (argc, argv, "p:")) != -1) {
-        switch (c) {
-            case 'p':
-                p->port = atoi(optarg);
-                break;
-        }
-    }
 
-    p->root_dirpath = argv[argc-1];
 }
-
 
 int main(int argc, char **argv) {
 

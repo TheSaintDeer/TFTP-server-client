@@ -1,5 +1,7 @@
-CC=g++
+# Name: Ivan Golikov
+# Login: xgolik00
 
+CC=g++
 
 all: client server
 

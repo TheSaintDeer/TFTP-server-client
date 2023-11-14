@@ -4,7 +4,8 @@
 #ifndef SERVER
 #define SERVER
 
-#include <bits/stdc++.h> 
+#include <unistd.h>
+#include <iostream>
 
 #include "packet.hpp"
 #include "common.hpp"
